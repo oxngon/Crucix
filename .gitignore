@@ -47,3 +47,7 @@ MAINTAINER_DECISIONS.local.md
 # Local deploy config
 dashboard/public/vercel.json
 *.bak.20260803
+
+# Impeccable design-tool install artifacts (dev tooling, not part of app)
+.github/skills/
+.github/hooks/
