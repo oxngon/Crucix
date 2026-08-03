@@ -259,6 +259,20 @@ app.get('/', (req, res) => {
   }
 });
 
+// Static assets (favicon, OG image) — no express.static middleware in this app
+const STATIC_ASSETS = {
+  '/favicon.png': { file: 'favicon.png', type: 'image/png' },
+  '/favicon.ico': { file: 'favicon.ico', type: 'image/x-icon' },
+  '/apple-touch-icon.png': { file: 'apple-touch-icon.png', type: 'image/png' },
+  '/og-image.png': { file: 'og-image.png', type: 'image/png' },
+};
+app.get(Object.keys(STATIC_ASSETS), (req, res) => {
+  const asset = STATIC_ASSETS[req.path];
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.type(asset.type);
+  res.sendFile(join(ROOT, 'dashboard/public', asset.file));
+});
+
 // API: current data
 app.get('/api/data', (req, res) => {
   if (!currentData) return res.status(503).json({ error: 'No data yet — first sweep in progress' });
