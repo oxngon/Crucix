@@ -24,7 +24,9 @@
     "perfLow": "LOW",
     "perfHigh": "HIGH",
     "guideBtn": "Signal Guide",
-    "live": "LIVE"
+    "live": "LIVE",
+    "light": "LIGHT",
+    "dark": "DARK"
   },
   "boot": {
     "initializing": "INITIALIZING CRUCIX ENGINE v2.1.0",

@@ -16,6 +16,7 @@ import { createLLMProvider } from './lib/llm/index.mjs';
 import { generateLLMIdeas } from './lib/llm/ideas.mjs';
 import { TelegramAlerter } from './lib/alerts/telegram.mjs';
 import { DiscordAlerter } from './lib/alerts/discord.mjs';
+import { renderMarkdownReport, renderLlmsTxt } from './lib/report.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -238,6 +239,11 @@ app.use(express.static(join(ROOT, 'dashboard/public')));
 
 // Serve loading page until first sweep completes, then the dashboard with injected locale
 app.get('/', (req, res) => {
+  // Never let browsers cache the dashboard HTML — it changes every sweep
+  // and on every deploy. Without this, stale copies linger in the browser.
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   if (!currentData) {
     res.sendFile(join(ROOT, 'dashboard/public/loading.html'));
   } else {
@@ -257,6 +263,45 @@ app.get('/', (req, res) => {
 app.get('/api/data', (req, res) => {
   if (!currentData) return res.status(503).json({ error: 'No data yet — first sweep in progress' });
   res.json(currentData);
+});
+
+// LLM-friendly: live markdown report (regenerated on each request)
+app.get('/report.md', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.type('text/markdown; charset=utf-8');
+  res.send(renderMarkdownReport(currentData));
+});
+
+// LLM-friendly: llms.txt discovery + live report (single collapsed file)
+app.get('/llms.txt', (req, res) => {
+  // No-cache: the file embeds the live report, which changes every sweep
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.type('text/plain; charset=utf-8');
+  res.send(renderLlmsTxt(currentData));
+});
+
+// Robots: explicitly welcome LLM crawlers
+app.get('/robots.txt', (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.type('text/plain; charset=utf-8');
+  res.send(`User-agent: GPTBot
+Allow: /
+User-agent: ClaudeBot
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Google-Extended
+Allow: /
+User-agent: anthropic-ai
+Allow: /
+User-agent: CCBot
+Allow: /
+User-agent: OAI-SearchBot
+Allow: /
+User-agent: *
+Disallow: /api/
+Disallow: /events
+`);
 });
 
 // API: health check
