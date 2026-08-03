@@ -10,6 +10,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT = join(__dirname, '..', 'dashboard', 'public');
 
 // ---- OG image 1200x630 -------------------------------------------------
+// NOTE: favicons are no longer generated here — the site uses the custom
+// favicon set (intel_favicon/) supplied by django. This script only emits
+// the OG share image.
 const ogSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
     <radialGradient id="bg" cx="50%" cy="42%" r="75%">
@@ -83,20 +86,11 @@ const favSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" v
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const ogPath = join(OUT, 'og-image.png');
-  const favPath = join(OUT, 'favicon.png');
-  const applePath = join(OUT, 'apple-touch-icon.png');
-  const favIco = join(OUT, 'favicon.ico');
 
   await sharp(Buffer.from(ogSvg)).png().toFile(ogPath);
-  await sharp(Buffer.from(favSvg)).resize(64, 64).png().toFile(favPath);
-  await sharp(Buffer.from(favSvg)).resize(180, 180).png().toFile(applePath);
-  await sharp(Buffer.from(favSvg)).resize(32, 32).toFile(favIco);
 
   console.log('Generated:');
   console.log(' ', ogPath);
-  console.log(' ', favPath);
-  console.log(' ', applePath);
-  console.log(' ', favIco);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

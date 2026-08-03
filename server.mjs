@@ -259,11 +259,15 @@ app.get('/', (req, res) => {
   }
 });
 
-// Static assets (favicon, OG image) — no express.static middleware in this app
+// Static assets (favicon set, manifest, OG image) — no express.static middleware in this app
 const STATIC_ASSETS = {
-  '/favicon.png': { file: 'favicon.png', type: 'image/png' },
   '/favicon.ico': { file: 'favicon.ico', type: 'image/x-icon' },
+  '/favicon-16x16.png': { file: 'favicon-16x16.png', type: 'image/png' },
+  '/favicon-32x32.png': { file: 'favicon-32x32.png', type: 'image/png' },
   '/apple-touch-icon.png': { file: 'apple-touch-icon.png', type: 'image/png' },
+  '/android-chrome-192x192.png': { file: 'android-chrome-192x192.png', type: 'image/png' },
+  '/android-chrome-512x512.png': { file: 'android-chrome-512x512.png', type: 'image/png' },
+  '/site.webmanifest': { file: 'site.webmanifest', type: 'application/manifest+json' },
   '/og-image.png': { file: 'og-image.png', type: 'image/png' },
 };
 app.get(Object.keys(STATIC_ASSETS), (req, res) => {
