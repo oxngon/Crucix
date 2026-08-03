@@ -272,12 +272,11 @@ app.get('/report.md', (req, res) => {
   res.send(renderMarkdownReport(currentData));
 });
 
-// LLM-friendly: llms.txt discovery + live report (single collapsed file)
+// LLM-friendly: llms.txt discovery file (static per llmstxt.org convention)
 app.get('/llms.txt', (req, res) => {
-  // No-cache: the file embeds the live report, which changes every sweep
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
   res.type('text/plain; charset=utf-8');
-  res.send(renderLlmsTxt(currentData));
+  res.send(renderLlmsTxt());
 });
 
 // Robots: explicitly welcome LLM crawlers
