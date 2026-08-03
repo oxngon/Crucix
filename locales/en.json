@@ -5,7 +5,7 @@
     "nativeName": "English"
   },
   "dashboard": {
-    "title": "CRUCIX — Intelligence Terminal",
+    "title": "django's intelligence terminal",
     "bootTitle": "CRUCIX INTELLIGENCE ENGINE",
     "bootSubtitle": "Local Palantir · 31 Sources",
     "waitingForSweep": "Waiting for first sweep...",
@@ -23,7 +23,8 @@
     "perf": "PERF",
     "perfLow": "LOW",
     "perfHigh": "HIGH",
-    "guideBtn": "What Signals Mean"
+    "guideBtn": "Signal Guide",
+    "live": "LIVE"
   },
   "boot": {
     "initializing": "INITIALIZING CRUCIX ENGINE v2.1.0",
@@ -45,8 +46,8 @@
     "intelligenceSynthesis": "INTELLIGENCE SYNTHESIS"
   },
   "panels": {
-    "sensorGrid": "Sensor Grid",
-    "tradeIdeas": "Leverageable Ideas",
+    "sensorGrid": "Sensors",
+    "tradeIdeas": "AI Trade Ideas",
     "osintFeed": "OSINT Feed",
     "osintStream": "OSINT Stream",
     "nuclearWatch": "Nuclear Watch",
@@ -55,11 +56,12 @@
     "macroMarkets": "Macro + Markets",
     "healthAlerts": "Health Alerts",
     "riskGauges": "Risk Gauges",
-    "crossSourceSignals": "Cross-Source Signals",
+    "crossSourceSignals": "Signal Feed",
     "signalCore": "Signal Core",
     "seismicWatch": "Seismic Watch",
     "cyberWatch": "Cyber Watch",
     "spaceWatch": "Space Watch",
+    "monitoring": "Monitoring",
     "europeAlerts": "Europe Alerts",
     "ecbIndicators": "ECB Indicators"
   },
@@ -116,7 +118,7 @@
     "risk": "Risk",
     "signals": "Signals",
     "rationale": "Rationale",
-    "aiEnhanced": "AI ENHANCED",
+    "aiEnhanced": "AI-GENERATED",
     "llmOff": "LLM OFF",
     "pending": "PENDING",
     "llmNotConfigured": "LLM NOT CONFIGURED",

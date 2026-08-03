@@ -10,8 +10,9 @@ export default {
   llm: {
     provider: process.env.LLM_PROVIDER || null, // anthropic | openai | gemini | codex | openrouter | minimax | mistral | ollama | grok
     apiKey: process.env.LLM_API_KEY || null,
+    apiKeyFile: process.env.LLM_API_KEY_FILE || null, // JSON file with {access_token} — read fresh per request (rotating tokens)
     model: process.env.LLM_MODEL || null,
-    baseUrl: process.env.OLLAMA_BASE_URL || null,
+    baseUrl: process.env.LLM_BASE_URL || process.env.OLLAMA_BASE_URL || null,
   },
 
   telegram: {

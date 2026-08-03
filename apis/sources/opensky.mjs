@@ -6,9 +6,18 @@ import { safeFetch } from '../utils/fetch.mjs';
 
 const BASE = 'https://opensky-network.org/api';
 
+// Optional authenticated access (doubles daily credits from 4k to 8k).
+// Set OPENSKY_USERNAME / OPENSKY_PASSWORD in .env to enable.
+function authHeaders() {
+  const user = process.env.OPENSKY_USERNAME || '';
+  const pass = process.env.OPENSKY_PASSWORD || '';
+  if (!user || !pass) return {};
+  return { Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64') };
+}
+
 // Get all current flights (global state vector)
 export async function getAllFlights() {
-  return safeFetch(`${BASE}/states/all`, { timeout: 30000 });
+  return safeFetch(`${BASE}/states/all`, { timeout: 30000, headers: authHeaders() });
 }
 
 // Get flights in a bounding box (lat/lon)
@@ -19,7 +28,9 @@ export async function getFlightsInArea(lamin, lomin, lamax, lomax) {
     lamax: String(lamax),
     lomax: String(lomax),
   });
-  return safeFetch(`${BASE}/states/all?${params}`, { timeout: 20000 });
+  // OpenSky rate-limits aggressively (4k credits/day unauthenticated, 8k with account).
+  // Keep retries at default (1) to avoid hammering the API when it 429s.
+  return safeFetch(`${BASE}/states/all?${params}`, { timeout: 20000, headers: authHeaders() });
 }
 
 // Get flights by specific aircraft (ICAO24 hex codes)

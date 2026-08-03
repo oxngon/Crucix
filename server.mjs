@@ -386,10 +386,26 @@ async function runSweepCycle() {
     // Prune old alerted signals
     memory.pruneAlertedSignals();
 
+    // Expose next sweep time so the dashboard can show a live countdown
+    synthesized.meta = synthesized.meta || {};
+    synthesized.meta.nextSweepAt = new Date(Date.now() + config.refreshIntervalMinutes * 60000).toISOString();
+
     currentData = synthesized;
 
     // 6. Push to all connected browsers
     broadcast({ type: 'update', data: currentData });
+
+    // 7. Write updated data to jarvis.html so it stays fresh on disk
+    try {
+      const htmlPath = join(ROOT, 'dashboard/public/jarvis.html');
+      let html = readFileSync(htmlPath, 'utf-8');
+      const json = JSON.stringify(currentData);
+      html = html.replace(/^(let|const) D = .*;\s*$/m, () => 'let D = ' + json + ';');
+      writeFileSync(htmlPath, html);
+      console.log('[Crucix] jarvis.html updated with fresh sweep data');
+    } catch (err) {
+      console.error('[Crucix] Failed to update jarvis.html:', err.message);
+    }
 
     console.log(`[Crucix] Sweep complete — ${currentData.meta.sourcesOk}/${currentData.meta.sourcesQueried} sources OK`);
     console.log(`[Crucix] ${currentData.ideas.length} ideas (${synthesized.ideasSource}) | ${currentData.news.length} news | ${currentData.newsFeed.length} feed items`);
@@ -422,7 +438,7 @@ async function start() {
   ╚══════════════════════════════════════════════╝
   `);
 
-  const server = app.listen(port);
+  const server = app.listen(port, '127.0.0.1');
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
@@ -453,6 +469,8 @@ async function start() {
     try {
       const existing = JSON.parse(readFileSync(join(RUNS_DIR, 'latest.json'), 'utf8'));
       const data = await synthesize(existing);
+      data.meta = data.meta || {};
+      data.meta.nextSweepAt = new Date(Date.now() + config.refreshIntervalMinutes * 60000).toISOString();
       currentData = data;
       console.log('[Crucix] Loaded existing data from runs/latest.json — dashboard ready instantly');
       broadcast({ type: 'update', data: currentData });
