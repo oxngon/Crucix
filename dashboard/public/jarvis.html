@@ -524,7 +524,9 @@ let globe = null;
 let globeInitialized = false;
 let flightsVisible = true;
 let lowPerfMode = localStorage.getItem('crucix_low_perf') === 'true';
-let lightTheme = localStorage.getItem('crucix_theme') === 'light';
+let lightTheme = localStorage.getItem('crucix_theme')
+  ? localStorage.getItem('crucix_theme') === 'light'
+  : (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: light)').matches);
 let isFlat = shouldStartFlat();
 let currentRegion = 'world';
 let flatSvg, flatProjection, flatPath, flatG, flatZoom, flatW, flatH;
