@@ -47,7 +47,9 @@ import { briefing as yfinance } from './sources/yfinance.mjs';
 import { briefing as cisaKev } from './sources/cisa-kev.mjs';
 import { briefing as cloudflareRadar } from './sources/cloudflare-radar.mjs';
 
-const SOURCE_TIMEOUT_MS = 30_000; // 30s max per individual source
+const SOURCE_TIMEOUT_MS = 45_000; // 45s max per individual source (GDELT needs ~20-30s)
+
+let sweepCount = 0; // Track sweeps to throttle GDELT (rate-limited free API)
 
 export async function runSource(name, fn, ...args) {
   const start = Date.now();
@@ -67,12 +69,14 @@ export async function runSource(name, fn, ...args) {
 }
 
 export async function fullBriefing() {
-  console.error('[Crucix] Starting intelligence sweep — 29 sources...');
+  sweepCount++;
+  const runGdelt = sweepCount % 4 === 1; // Run GDELT every 4 sweeps (~6h) due to rate limits
+  console.error(`[Crucix] Starting intelligence sweep — 29 sources${runGdelt ? ' (GDELT enabled)' : ' (GDELT skipped)'}...`);
   const start = Date.now();
 
   const allPromises = [
     // Tier 1: Core OSINT & Geopolitical
-    runSource('GDELT', gdelt),
+    runGdelt ? runSource('GDELT', gdelt) : Promise.resolve({ name: 'GDELT', status: 'skipped', data: null }),
     runSource('OpenSky', opensky),
     runSource('FIRMS', firms),
     runSource('Maritime', ships),

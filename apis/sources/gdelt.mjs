@@ -28,7 +28,7 @@ export async function searchEvents(query = '', opts = {}) {
     sort: sortBy,
   });
 
-  return safeFetch(`${BASE}/doc/doc?${params}`);
+  return safeFetch(`${BASE}/doc/doc?${params}`, { timeout: 45000 });
 }
 
 // Get tone/sentiment timeline for a topic
@@ -39,7 +39,7 @@ export async function toneTrend(query, timespan = '7d') {
     timespan,
     format: 'json',
   });
-  return safeFetch(`${BASE}/doc/doc?${params}`);
+  return safeFetch(`${BASE}/doc/doc?${params}`, { timeout: 45000 });
 }
 
 // Get volume timeline for a topic (how much coverage)
@@ -50,7 +50,7 @@ export async function volumeTrend(query, timespan = '7d') {
     timespan,
     format: 'json',
   });
-  return safeFetch(`${BASE}/doc/doc?${params}`);
+  return safeFetch(`${BASE}/doc/doc?${params}`, { timeout: 45000 });
 }
 
 // GEO API — geographic event mapping
@@ -71,7 +71,7 @@ export async function geoEvents(query = '', opts = {}) {
     maxpoints: String(maxPoints),
   });
 
-  return safeFetch(`${BASE}/geo/geo?${params}`);
+  return safeFetch(`${BASE}/geo/geo?${params}`, { timeout: 45000 });
 }
 
 // Compact article for briefing
