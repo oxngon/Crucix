@@ -51,3 +51,4 @@ dashboard/public/vercel.json
 # Impeccable design-tool install artifacts (dev tooling, not part of app)
 .github/skills/
 .github/hooks/
+.env.bak*
