@@ -52,3 +52,5 @@ dashboard/public/vercel.json
 .github/skills/
 .github/hooks/
 .env.bak*
+
+runs/gdelt-cache.json
