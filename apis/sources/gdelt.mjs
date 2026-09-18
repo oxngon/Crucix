@@ -7,6 +7,29 @@ import { safeFetch } from '../utils/fetch.mjs';
 
 const BASE = 'https://api.gdeltproject.org/api/v2';
 
+// GDELT rate limit: 1 request per 5 seconds. Use 6.5s to stay clear of the edge.
+const RATE_LIMIT_MS = 6500;
+
+// Individual GDELT requests observed at 14-25s under load. 30s per request keeps
+// a slow-but-working query alive without letting one hang eat the whole budget.
+const REQUEST_TIMEOUT_MS = 30_000;
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// GDELT answers throttled/oversized queries with a PLAIN-TEXT nag instead of a
+// JSON error, so safeFetch hands back { rawText: "Please limit requests..." }.
+// Without this check the source silently reports 0 articles and looks "healthy".
+function throttleMessage(res) {
+  const raw = typeof res?.rawText === 'string' ? res.rawText : '';
+  if (/limit requests|larger queries|too many requests/i.test(raw)) {
+    return raw.slice(0, 120);
+  }
+  if (typeof res?.error === 'string' && /HTTP 429/.test(res.error)) {
+    return res.error.slice(0, 120);
+  }
+  return null;
+}
+
 // Search recent global events/articles by keyword
 export async function searchEvents(query = '', opts = {}) {
   const {
@@ -28,7 +51,10 @@ export async function searchEvents(query = '', opts = {}) {
     sort: sortBy,
   });
 
-  return safeFetch(`${BASE}/doc/doc?${params}`, { timeout: 45000 });
+  // retries: 0 — safeFetch's exponential backoff maxes out around 1s, which can
+  // never satisfy GDELT's 5s rate limit. Retrying just burns 20s+ of our budget
+  // and returns the same 429. We do our own spacing in briefing() instead.
+  return safeFetch(`${BASE}/doc/doc?${params}`, { timeout: REQUEST_TIMEOUT_MS, retries: 0 });
 }
 
 // Get tone/sentiment timeline for a topic
@@ -86,42 +112,89 @@ function compactArticle(a) {
   };
 }
 
-// GDELT rate limit: 1 request per 5 seconds
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-// Briefing mode — get top global events summary (sequential due to rate limit)
+// Briefing mode — GDELT rejects multi-term OR queries with HTTP 429 ("larger
+// queries"), so we issue a few SINGLE-TERM queries sequentially, spaced by the
+// rate limit, and merge the results. Partial success is fine: whatever terms
+// come back get used, and we only surface an error if every term was throttled.
 export async function briefing() {
-  // Single broad query to stay within rate limits
-  const all = await searchEvents(
-    'conflict OR military OR economy OR crisis OR war OR sanctions OR tariff OR strike OR outbreak',
-    { maxRecords: 50, timespan: '24h' }
-  );
+  // Two terms only. Each request costs 14-25s plus 6.5s spacing, so more terms
+  // cannot fit in the source timeout. 'military' + 'crisis' between them cover
+  // the conflict/economy/crisis buckets this source feeds.
+  const TERMS = ['military', 'crisis'];
 
-  const articles = (all?.articles || []).map(compactArticle);
+  // Hard deadline: stop starting new work if we'd overrun the source budget.
+  const DEADLINE_MS = 80_000;
+  const startedAt = Date.now();
+  const remaining = () => DEADLINE_MS - (Date.now() - startedAt);
+
+  const seen = new Set();
+  const articles = [];
+  const throttled = [];
+  let lastThrottle = null;
+
+  for (let i = 0; i < TERMS.length; i++) {
+    if (i > 0) {
+      // Only pay the rate-limit wait if there's budget for the request after it.
+      if (remaining() < RATE_LIMIT_MS + REQUEST_TIMEOUT_MS) break;
+      await delay(RATE_LIMIT_MS);
+    }
+
+    const term = TERMS[i];
+    const res = await searchEvents(term, { maxRecords: 75, timespan: '24h' });
+
+    const nag = throttleMessage(res);
+    if (nag) {
+      lastThrottle = nag;
+      throttled.push(term);
+      continue;
+    }
+
+    for (const a of (res?.articles || [])) {
+      if (!a?.url || seen.has(a.url)) continue;
+      seen.add(a.url);
+      articles.push(compactArticle(a));
+    }
+  }
+
+  // Every attempted term throttled — throw so runSource() records a real error
+  // instead of silently reporting a healthy source with zero articles.
+  if (articles.length === 0 && throttled.length > 0) {
+    throw new Error(`GDELT throttled on all ${throttled.length} queries: ${lastThrottle || 'HTTP 429'}`);
+  }
+
+  // Sort newest-first so the merged set behaves like a single DateDesc query.
+  articles.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 
   // Categorize by keyword matching in titles
   const categorize = (keywords) => articles.filter(a =>
     keywords.some(k => a.title?.toLowerCase().includes(k))
   );
 
-  // Geo events — get mapped event locations (separate API, respects rate limit)
-  await delay(5500);
+  // Geo events — separate API, single-term, and strictly optional. Skipped
+  // entirely when the article queries already consumed the budget.
   let geoPoints = [];
-  try {
-    const geo = await geoEvents('conflict OR military OR protest OR crisis', { maxPoints: 30, timespan: '24h' });
-    geoPoints = (geo?.features || []).filter(f => f.geometry?.coordinates).map(f => ({
-      lat: f.geometry.coordinates[1],
-      lon: f.geometry.coordinates[0],
-      name: f.properties?.name || f.properties?.html || '',
-      count: f.properties?.count || 1,
-      type: f.properties?.type || 'event',
-    }));
-  } catch (e) { /* geo endpoint optional — don't break briefing */ }
+  if (remaining() > RATE_LIMIT_MS + REQUEST_TIMEOUT_MS) {
+    await delay(RATE_LIMIT_MS);
+    try {
+      const geo = await geoEvents('conflict', { maxPoints: 30, timespan: '24h' });
+      if (!throttleMessage(geo)) {
+        geoPoints = (geo?.features || []).filter(f => f.geometry?.coordinates).map(f => ({
+          lat: f.geometry.coordinates[1],
+          lon: f.geometry.coordinates[0],
+          name: f.properties?.name || f.properties?.html || '',
+          count: f.properties?.count || 1,
+          type: f.properties?.type || 'event',
+        }));
+      }
+    } catch (e) { /* geo endpoint optional — don't break briefing */ }
+  }
 
   return {
     source: 'GDELT',
     timestamp: new Date().toISOString(),
     totalArticles: articles.length,
+    queriedTerms: TERMS,
+    throttledTerms: throttled,
     allArticles: articles,
     geoPoints,
     conflicts: categorize(['military', 'conflict', 'war', 'strike', 'missile', 'attack', 'bomb', 'troops']),
