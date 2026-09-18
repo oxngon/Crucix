@@ -54,3 +54,6 @@ dashboard/public/vercel.json
 .env.bak*
 
 runs/gdelt-cache.json
+
+# dated manual backups, e.g. file.mjs.bak.20260818
+*.bak.*
