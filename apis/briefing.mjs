@@ -96,6 +96,37 @@ export async function runSource(name, fn, ...args) {
   }
 }
 
+/**
+ * Apply GDELT carry-forward to a completed source entry.
+ *
+ * Triggers on a SKIPPED sweep (GDELT run only every Nth sweep) and on a FAILED
+ * one (GDELT answering HTTP 429 from its side). On success the entry becomes
+ * status 'ok' with carried=true: counted healthy, but the topbar age tag keeps
+ * it honest and the returned carryReason records why, so a stale payload is
+ * never silently presented as fresh and the source is never silently blank.
+ *
+ * An empty payload is never served: carrying zeros forward would look like
+ * working data while saying nothing.
+ *
+ * The cache loader is injectable so this is testable without a live sweep.
+ */
+export function applyGdeltCarryForward(gdeltEntry, loadCache = loadGdeltCache) {
+  const result = { carriedFrom: null, carryReason: null };
+  if (gdeltEntry && (gdeltEntry.status === 'skipped' || gdeltEntry.status === 'error')) {
+    const failed = gdeltEntry.status === 'error';
+    const cached = gdeltEntry.cached?.data ? gdeltEntry.cached : loadCache();
+    if (cached?.data && (cached.data.totalArticles ?? 0) > 0) {
+      gdeltEntry.status = 'ok';
+      gdeltEntry.data = cached.data;
+      gdeltEntry.carried = true;
+      result.carriedFrom = cached.fetchedAt;
+      if (failed) result.carryReason = gdeltEntry.error || 'throttled';
+    }
+  }
+  delete gdeltEntry?.cached;
+  return result;
+}
+
 export async function fullBriefing() {
   sweepCount++;
   const runGdelt = sweepCount % 4 === 1; // Run GDELT every 4 sweeps (~6h) due to rate limits
@@ -151,22 +182,16 @@ export async function fullBriefing() {
 
   const sources = results.map(r => r.status === 'fulfilled' ? r.value : { status: 'failed', error: r.reason?.message });
 
-  // Carry-forward: on skip sweeps, substitute the cached GDELT payload (if fresh
-  // enough) so the dashboard keeps serving the last fetch instead of nothing.
-  // Status becomes 'carried' — counted as healthy, but distinguishable from ok.
-  let gdeltCarriedFrom = null;
+  // Carry-forward: keep serving the last real GDELT fetch rather than nothing.
   const gdeltEntry = sources.find(s => s.name === 'GDELT');
-  if (gdeltEntry && gdeltEntry.status === 'skipped' && gdeltEntry.cached?.data) {
-    gdeltEntry.status = 'ok';
-    gdeltEntry.data = gdeltEntry.cached.data;
-    gdeltEntry.carried = true;
-    gdeltCarriedFrom = gdeltEntry.cached.fetchedAt;
-  }
-  delete gdeltEntry?.cached;
+  const { carriedFrom: gdeltCarriedFrom, carryReason: gdeltCarryReason } =
+    applyGdeltCarryForward(gdeltEntry);
   const totalMs = Date.now() - start;
 
-  // Persist a fresh GDELT payload for future carry-forward
-  if (gdeltEntry && !gdeltEntry.carried && gdeltEntry.data) {
+  // Persist a fresh GDELT payload for future carry-forward. Only a payload that
+  // actually contains articles: persisting an empty one overwrites good cached
+  // data with zeros, and a later throttled sweep then has nothing to serve.
+  if (gdeltEntry && !gdeltEntry.carried && gdeltEntry.data && (gdeltEntry.data.totalArticles ?? 0) > 0) {
     try {
       writeFileSync(GDELT_CACHE_FILE, JSON.stringify({ fetchedAt: new Date().toISOString(), data: gdeltEntry.data }));
     } catch (e) {
@@ -189,6 +214,7 @@ export async function fullBriefing() {
       sourcesSkipped: sources.filter(s => s.status === 'skipped').length,
       sourcesFailed: sources.filter(s => s.status !== 'ok' && s.status !== 'skipped').length,
       ...(gdeltCarriedFrom ? { gdeltCarriedFrom } : {}),
+      ...(gdeltCarryReason ? { gdeltCarryReason } : {}),
     },
     sources: Object.fromEntries(
       sources.filter(s => s.status === 'ok').map(s => [s.name, s.data])

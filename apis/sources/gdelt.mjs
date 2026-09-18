@@ -7,8 +7,11 @@ import { safeFetch } from '../utils/fetch.mjs';
 
 const BASE = 'https://api.gdeltproject.org/api/v2';
 
-// GDELT rate limit: 1 request per 5 seconds. Use 6.5s to stay clear of the edge.
-const RATE_LIMIT_MS = 6500;
+// GDELT rate limit: 1 request per 5 seconds. We now space requests much wider
+// than the documented limit (15s vs 5s): the documented figure is a floor, not a
+// safe rate, and this box has been served HTTP 429 on all queries with 6.5s
+// spacing. Fewer requests, further apart, is the only lever we control.
+const RATE_LIMIT_MS = 15_000;
 
 // Individual GDELT requests observed at 14-25s under load. 30s per request keeps
 // a slow-but-working query alive without letting one hang eat the whole budget.
@@ -113,14 +116,18 @@ function compactArticle(a) {
 }
 
 // Briefing mode — GDELT rejects multi-term OR queries with HTTP 429 ("larger
-// queries"), so we issue a few SINGLE-TERM queries sequentially, spaced by the
-// rate limit, and merge the results. Partial success is fine: whatever terms
-// come back get used, and we only surface an error if every term was throttled.
+// queries"), so we issue a SINGLE-TERM query. It surfaces an error only when
+// that query was throttled, so a throttle is never reported as "0 articles,
+// healthy"; callers fall back to the carry-forward cache in that case.
 export async function briefing() {
-  // Two terms only. Each request costs 14-25s plus 6.5s spacing, so more terms
-  // cannot fit in the source timeout. 'military' + 'crisis' between them cover
-  // the conflict/economy/crisis buckets this source feeds.
-  const TERMS = ['military', 'crisis'];
+  // ONE term. Each request costs 14-25s, so N terms cost N sequential requests
+  // against a hard 5s rate limit — every extra term both risks a 429 and eats
+  // the source budget. 'conflict' is the broadest single term that still feeds
+  // the conflict/crisis buckets; categorisation below splits the results into
+  // the economy/health/crisis buckets by keyword, so the buckets still fill
+  // from one query. Multi-term OR is not an option: GDELT rejects it outright
+  // as a "larger query".
+  const TERMS = ['conflict'];
 
   // Hard deadline: stop starting new work if we'd overrun the source budget.
   const DEADLINE_MS = 80_000;
