@@ -106,11 +106,17 @@ if (telegramAlerter.isConfigured) {
     }
 
     // Key metrics
-    const vix = currentData.fred?.find(f => f.id === 'VIXCLS');
+    // Live VIX (Yahoo) with FRED fallback, so this reads consistently with the WTI/Brent
+    // figures below it, which are already post-override. FRED's VIXCLS lags by days, so
+    // when we do fall back we tag the vintage rather than passing it off as current.
+    const vixLive = currentData.markets?.vix?.value;
+    const vixFred = currentData.fred?.find(f => f.id === 'VIXCLS');
+    const vix = vixLive != null ? vixLive : vixFred?.value;
+    const vixTag = vixLive == null && vixFred?.date ? ` (FRED ${vixFred.date})` : '';
     const hy = currentData.fred?.find(f => f.id === 'BAMLH0A0HYM2');
-    if (vix || energy.wti || metals.gold || metals.silver) {
-      sections.push(`📊 VIX: ${vix?.value || '--'} | WTI: $${energy.wti || '--'} | Brent: $${energy.brent || '--'}`);
-      sections.push(`   Gold: $${metals.gold || '--'} | Silver: $${metals.silver || '--'}${hy ? ` | HY Spread: ${hy.value}` : ''}`);
+    if (vix != null || energy.wti || metals.gold || metals.silver) {
+      sections.push(`📊 VIX: ${vix ?? '--'}${vixTag} | WTI: $${energy.wti || '--'} | Brent: $${energy.brent || '--'}`);
+      sections.push(`   Gold: $${metals.gold || '--'} | Silver: $${metals.silver || '--'}${hy ? ` | HY Spread: ${hy.value}${hy.date ? ` (${hy.date})` : ''}` : ''}`);
       sections.push(`   NatGas: $${energy.natgas || '--'}`);
       sections.push('');
     }
@@ -196,11 +202,17 @@ if (discordAlerter.isConfigured) {
       sections.push(`${dirEmoji} Direction: **${delta.summary.direction.toUpperCase()}** | ${delta.summary.totalChanges} changes, ${delta.summary.criticalChanges} critical\n`);
     }
 
-    const vix = currentData.fred?.find(f => f.id === 'VIXCLS');
+    // Live VIX (Yahoo) with FRED fallback, so this reads consistently with the WTI/Brent
+    // figures below it, which are already post-override. FRED's VIXCLS lags by days, so
+    // when we do fall back we tag the vintage rather than passing it off as current.
+    const vixLive = currentData.markets?.vix?.value;
+    const vixFred = currentData.fred?.find(f => f.id === 'VIXCLS');
+    const vix = vixLive != null ? vixLive : vixFred?.value;
+    const vixTag = vixLive == null && vixFred?.date ? ` (FRED ${vixFred.date})` : '';
     const hy = currentData.fred?.find(f => f.id === 'BAMLH0A0HYM2');
-    if (vix || energy.wti || metals.gold || metals.silver) {
-      sections.push(`📊 VIX: ${vix?.value || '--'} | WTI: $${energy.wti || '--'} | Brent: $${energy.brent || '--'}`);
-      sections.push(`   Gold: $${metals.gold || '--'} | Silver: $${metals.silver || '--'}${hy ? ` | HY Spread: ${hy.value}` : ''}`);
+    if (vix != null || energy.wti || metals.gold || metals.silver) {
+      sections.push(`📊 VIX: ${vix ?? '--'}${vixTag} | WTI: $${energy.wti || '--'} | Brent: $${energy.brent || '--'}`);
+      sections.push(`   Gold: $${metals.gold || '--'} | Silver: $${metals.silver || '--'}${hy ? ` | HY Spread: ${hy.value}${hy.date ? ` (${hy.date})` : ''}` : ''}`);
       sections.push(`   NatGas: $${energy.natgas || '--'}`);
       sections.push('');
     }

@@ -18,6 +18,35 @@ const ROOT = join(__dirname, '..');
 
 // === Helpers ===
 const cyrillic = /[\u0400-\u04FF]/;
+
+/**
+ * Derive commodity price signals from the FINAL displayed values.
+ *
+ * EIA renders its `signals` into prose strings at fetch time, BEFORE the Yahoo
+ * live-price override runs — so the strings keep quoting stale prices the dashboard
+ * no longer shows (e.g. "WTI above $100 at $107.02" next to a live $96.08). Deriving
+ * here, from the same values the UI renders, makes that contradiction impossible.
+ *
+ * Non-price signals (inventory changes) are unaffected by the override and are kept
+ * from the source; see the merge in synthesize().
+ */
+function derivePriceSignals(energy) {
+  const out = [];
+  const { wti, brent, natgas } = energy || {};
+  if (wti != null) {
+    if (wti > 100) out.push(`WTI crude above $100 at $${wti}/bbl`);
+    if (wti < 50) out.push(`WTI crude below $50 at $${wti}/bbl — supply glut or demand destruction`);
+  }
+  if (wti != null && brent != null && (brent - wti) > 10) {
+    out.push(`Brent-WTI spread wide at $${(brent - wti).toFixed(2)} — supply/logistics divergence`);
+  }
+  if (natgas != null) {
+    if (natgas > 6) out.push(`Natural gas elevated at $${natgas}/MMBtu`);
+    if (natgas > 9) out.push(`Natural gas crisis-level at $${natgas}/MMBtu`);
+  }
+  return out;
+}
+
 function isEnglish(text) {
   if (!text) return false;
   return !cyrillic.test(text.substring(0, 80));
@@ -592,6 +621,15 @@ export async function synthesize(data) {
   if (yfBrent?.price) energy.brent = yfBrent.price;
   if (yfNatgas?.price) energy.natgas = yfNatgas.price;
   if (yfWti?.history?.length) energy.wtiRecent = yfWti.history.map(h => h.close);
+
+  // Rebuild price-derived signals from the FINAL (post-override) values so the prose
+  // can never contradict the numbers beside it. Inventory signals come from the EIA
+  // series directly and are unaffected by the price override, so they are preserved.
+  energy.signals = [
+    ...derivePriceSignals(energy),
+    ...(energyData.signals || []).filter(s => /^Large crude inventory/.test(s)),
+  ];
+  energy.signalsSource = 'derived-from-live';
 
   // Fetch RSS
   const news = await fetchAllNews();
