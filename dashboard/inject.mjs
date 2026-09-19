@@ -30,14 +30,18 @@ const cyrillic = /[\u0400-\u04FF]/;
  * Non-price signals (inventory changes) are unaffected by the override and are kept
  * from the source; see the merge in synthesize().
  */
-function derivePriceSignals(energy) {
+function derivePriceSignals(energy, vintage) {
   const out = [];
   const { wti, brent, natgas } = energy || {};
   if (wti != null) {
     if (wti > 100) out.push(`WTI crude above $100 at $${wti}/bbl`);
     if (wti < 50) out.push(`WTI crude below $50 at $${wti}/bbl — supply glut or demand destruction`);
   }
-  if (wti != null && brent != null && (brent - wti) > 10) {
+  // A spread is only meaningful if BOTH legs are live (or carried-forward) prices.
+  // If either leg fell back to the lagging official print, their difference is an
+  // artefact of the vintage mismatch, not a market dislocation — don't report it.
+  const legLive = (v) => v?.source === 'yahoo-live' || v?.source === 'yahoo-carried';
+  if (wti != null && brent != null && (brent - wti) > 10 && legLive(vintage?.wti) && legLive(vintage?.brent)) {
     out.push(`Brent-WTI spread wide at $${(brent - wti).toFixed(2)} — supply/logistics divergence`);
   }
   if (natgas != null) {
@@ -622,11 +626,30 @@ export async function synthesize(data) {
   if (yfNatgas?.price) energy.natgas = yfNatgas.price;
   if (yfWti?.history?.length) energy.wtiRecent = yfWti.history.map(h => h.close);
 
+  // Record where each price actually came from. Mirrors the override above so the UI
+  // can distinguish a live quote from a carried-forward one (Yahoo failed that symbol
+  // this sweep, so we reused the last known-good price) or the lagging official print —
+  // rather than presenting all three as equally current.
+  const eiaPeriod = energyData.oilPrices?.wti?.period || energyData.oilPrices?.brent?.period || null;
+  const yfAsOf = yfData.summary?.timestamp || null;
+  const vintageOf = (q, price) => {
+    if (price == null) return null;
+    if (!q?.price) return { source: 'eia-lagged', asOf: eiaPeriod };
+    if (q.carriedForward) return { source: 'yahoo-carried', asOf: q.carriedFrom || null };
+    return { source: 'yahoo-live', asOf: yfAsOf };
+  };
+  energy.vintage = {
+    wti: vintageOf(yfWti, energy.wti),
+    brent: vintageOf(yfBrent, energy.brent),
+    natgas: vintageOf(yfNatgas, energy.natgas),
+  };
+  const yfSummary = yfData.summary || {};
+
   // Rebuild price-derived signals from the FINAL (post-override) values so the prose
   // can never contradict the numbers beside it. Inventory signals come from the EIA
   // series directly and are unaffected by the price override, so they are preserved.
   energy.signals = [
-    ...derivePriceSignals(energy),
+    ...derivePriceSignals(energy, energy.vintage),
     ...(energyData.signals || []).filter(s => /^Large crude inventory/.test(s)),
   ];
   energy.signalsSource = 'derived-from-live';
@@ -648,6 +671,16 @@ export async function synthesize(data) {
     tg: { posts: tgData.totalPosts || 0, urgent: tgUrgent, topPosts: tgTop },
     who, fred, energy, metals, bls, treasury, gscpi, defense, noaa, epa, acled, gdelt, space, health, news,
     markets, // Live Yahoo Finance market data
+    // Yahoo quote health — a partial per-symbol failure would otherwise be invisible
+    // (the symbol just keeps its previous/fallback value). Surfaced for the watchdog.
+    yf: {
+      ok: yfSummary.ok ?? null,
+      carried: yfSummary.carried ?? 0,
+      failed: yfSummary.failed ?? 0,
+      carriedSymbols: yfSummary.carriedSymbols || [],
+      missingSymbols: yfSummary.missingSymbols || [],
+      timestamp: yfSummary.timestamp || null,
+    },
     ideas: [], ideasSource: 'disabled',
     // newsFeed for ticker (merged RSS + GDELT + Telegram)
     newsFeed: buildNewsFeed(news, gdeltData, tgUrgent, tgTop),

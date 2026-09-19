@@ -2,9 +2,20 @@
 // Provides real-time prices for stocks, ETFs, crypto, commodities
 // Replaces the need for Alpaca or any paid market data provider
 
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { safeFetch } from '../utils/fetch.mjs';
 
 const BASE = 'https://query1.finance.yahoo.com/v8/finance/chart';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const CACHE_FILE = join(__dirname, '..', '..', 'runs', 'yfinance-cache.json');
+
+// How long a live quote may be carried forward after a partial fetch failure.
+// Deliberately spans a weekend + market holiday: a Friday close IS the last
+// known-good live price on a Saturday, so reusing it is correct, not a bug.
+const MAX_CARRY_AGE_MS = 96 * 60 * 60 * 1000;
 
 // Symbols to track — covers broad market, rates, commodities, crypto, volatility
 const SYMBOLS = {
@@ -82,6 +93,39 @@ async function fetchQuote(symbol) {
   }
 }
 
+// ─── Carry-forward cache ─────────────────────────────────────────────────────
+// Yahoo occasionally fails per-symbol under a parallel burst (the failure comes
+// back as `quotes['unknown'] = {error:'fetch failed'}`, or the symbol is simply
+// absent). Without this, a single failed symbol silently keeps whatever the
+// source module last emitted — for commodities that is the days-old official
+// EIA spot print, which then sits beside a live neighbour and fabricates a move
+// (real case: live WTI $96.08 shown with stale Brent $130.80 → a fake +31.7%
+// "Brent escalated" and a $34.72 phantom spread that drove a whole trade thesis).
+//
+// We persist every successfully-fetched quote and, on failure, reuse the last
+// known-good one — tagged with the time it was actually fetched, so the vintage
+// is visible downstream instead of being passed off as current.
+// Mirrors the GDELT carry-forward pattern in apis/briefing.mjs.
+function loadCache() {
+  try {
+    if (!existsSync(CACHE_FILE)) return {};
+    const parsed = JSON.parse(readFileSync(CACHE_FILE, 'utf8'));
+    return parsed?.symbols || {};
+  } catch (e) {
+    console.error('[Crucix] Failed to read Yahoo cache:', e.message);
+    return {};
+  }
+}
+
+function persistCache(symbols) {
+  try {
+    mkdirSync(dirname(CACHE_FILE), { recursive: true });
+    writeFileSync(CACHE_FILE, JSON.stringify({ updatedAt: new Date().toISOString(), symbols }));
+  } catch (e) {
+    console.error('[Crucix] Failed to persist Yahoo cache:', e.message);
+  }
+}
+
 export async function briefing() {
   return collect();
 }
@@ -92,21 +136,57 @@ export async function collect() {
     symbols.map(s => fetchQuote(s))
   );
 
+  const cache = loadCache();
   const quotes = {};
+  const carried = [];
+  const missing = [];
   let ok = 0;
-  let failed = 0;
 
-  for (const r of results) {
-    const q = r.status === 'fulfilled' ? r.value : null;
-    if (q && !q.error) {
-      quotes[q.symbol] = q;
+  for (let i = 0; i < results.length; i++) {
+    const sym = symbols[i];                       // index-aligned — do NOT trust q.symbol:
+    const r = results[i];                         // a failed fetch returns bare null, which
+    const q = r.status === 'fulfilled' ? r.value : null;  // would lose the identity entirely
+
+    if (q && !q.error && q.price != null) {
+      quotes[sym] = q;
       ok++;
-    } else {
-      failed++;
-      const sym = q?.symbol || 'unknown';
-      quotes[sym] = q || { symbol: sym, error: 'fetch failed' };
+      continue;
+    }
+
+    // Reuse the last known-good live quote if it is still recent enough.
+    const cached = cache[sym];
+    if (cached?.quote?.price != null) {
+      const age = Date.now() - new Date(cached.fetchedAt).getTime();
+      if (Number.isFinite(age) && age >= 0 && age <= MAX_CARRY_AGE_MS) {
+        quotes[sym] = {
+          ...cached.quote,
+          carriedForward: true,
+          carriedFrom: cached.fetchedAt,
+        };
+        carried.push({ symbol: sym, carriedFrom: cached.fetchedAt, ageMs: age });
+        continue;
+      }
+    }
+
+    missing.push(sym);
+    quotes[sym] = q || { symbol: sym, error: 'fetch failed' };
+  }
+
+  // Refresh the cache with this sweep's live quotes. Entries that were carried
+  // keep their ORIGINAL fetchedAt, so their age keeps growing and a persistent
+  // failure eventually expires instead of being carried forever.
+  const nextSymbols = { ...cache };
+  const fetchedAt = new Date().toISOString();
+  for (const [sym, q] of Object.entries(quotes)) {
+    if (!q.error && !q.carriedForward && q.price != null) {
+      nextSymbols[sym] = { fetchedAt, quote: q };
     }
   }
+  // Drop entries for symbols that no longer exist in SYMBOLS.
+  for (const sym of Object.keys(nextSymbols)) {
+    if (!symbols.includes(sym)) delete nextSymbols[sym];
+  }
+  persistCache(nextSymbols);
 
   // Categorize for easy dashboard consumption
   return {
@@ -114,8 +194,11 @@ export async function collect() {
     summary: {
       totalSymbols: symbols.length,
       ok,
-      failed,
-      timestamp: new Date().toISOString(),
+      carried: carried.length,
+      failed: missing.length,
+      carriedSymbols: carried.map(c => c.symbol),
+      missingSymbols: missing,
+      timestamp: fetchedAt,
     },
     indexes: pickGroup(quotes, ['^GSPC', '^IXIC', '^DJI', '^RUT']),
     rates: pickGroup(quotes, ['TLT', 'HYG', 'LQD']),
