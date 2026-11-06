@@ -20,6 +20,7 @@ export default {
     chatId: process.env.TELEGRAM_CHAT_ID || null,
     botPollingInterval: parseInt(process.env.TELEGRAM_POLL_INTERVAL) || 5000,
     channels: process.env.TELEGRAM_CHANNELS || null, // Comma-separated extra channel IDs
+    operatorIds: process.env.TELEGRAM_OPERATOR_IDS || null, // Comma-separated user IDs allowed to run commands in a group
   },
 
   discord: {
@@ -27,6 +28,7 @@ export default {
     channelId: process.env.DISCORD_CHANNEL_ID || null,
     guildId: process.env.DISCORD_GUILD_ID || null, // Server ID (for instant slash command registration)
     webhookUrl: process.env.DISCORD_WEBHOOK_URL || null, // Fallback: webhook-only alerts (no bot needed)
+    allowedUserIds: process.env.DISCORD_ALLOWED_USER_IDS || null, // Comma-separated user IDs allowed to run commands
   },
 
   // Delta engine thresholds — override defaults from lib/delta/engine.mjs

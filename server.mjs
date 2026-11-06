@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import config from './crucix.config.mjs';
 import { getLocale, currentLanguage, getSupportedLocales } from './lib/i18n.mjs';
+import { jsonForScript } from './lib/html-safe.mjs';
 import { fullBriefing } from './apis/briefing.mjs';
 import { synthesize, generateIdeas } from './dashboard/inject.mjs';
 import { MemoryManager } from './lib/delta/index.mjs';
@@ -246,11 +247,36 @@ if (discordAlerter.isConfigured) {
 }
 
 // === Express Server ===
+// Defence in depth, not a substitute for output encoding. The dashboard needs
+// inline script and inline event handlers, so 'unsafe-inline' stays and this
+// policy does NOT block inline injection. It does block injected external
+// scripts, base-tag hijacking, framing, object embedding and form exfiltration.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://d3js.org https://unpkg.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' data: blob: https:",
+  "connect-src 'self' https://cdn.jsdelivr.net",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "form-action 'none'",
+].join('; ');
+
 const app = express();
-app.use(express.static(join(ROOT, 'dashboard/public')));
+app.use(express.static(join(ROOT, 'dashboard/public'), {
+  setHeaders(res, filePath) {
+    // Static HTML bypasses the `/` handler, so it needs the policy too.
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+    }
+  },
+}));
 
 // Serve loading page until first sweep completes, then the dashboard with injected locale
 app.get('/', (req, res) => {
+  res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
   // Never let browsers cache the dashboard HTML — it changes every sweep
   // and on every deploy. Without this, stale copies linger in the browser.
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -264,7 +290,7 @@ app.get('/', (req, res) => {
     
     // Inject locale data into the HTML
     const locale = getLocale();
-    const localeScript = `<script>window.__CRUCIX_LOCALE__ = ${JSON.stringify(locale).replace(/<\/script>/gi, '<\\/script>')};</script>`;
+    const localeScript = `<script>window.__CRUCIX_LOCALE__ = ${jsonForScript(locale)};</script>`;
     html = html.replace('</head>', `${localeScript}\n</head>`);
     
     res.type('html').send(html);
@@ -473,7 +499,7 @@ async function runSweepCycle() {
     try {
       const htmlPath = join(ROOT, 'dashboard/public/jarvis.html');
       let html = readFileSync(htmlPath, 'utf-8');
-      const json = JSON.stringify(currentData);
+      const json = jsonForScript(currentData);
       html = html.replace(/^(let|const) D = .*;\s*$/m, () => 'let D = ' + json + ';');
       writeFileSync(htmlPath, html);
       console.log('[Crucix] jarvis.html updated with fresh sweep data');
